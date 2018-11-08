@@ -8,8 +8,8 @@
 using namespace cv;
 using namespace std;
 
-const int MAP_W = 10;
-const int MAP_H = 10;
+const int MAP_W = 680;
+const int MAP_H = 400;
 
 const auto PI = acos(-1.0);
 
@@ -31,26 +31,14 @@ enum TileType {
 };
 
 //map data, 1 represents wall, 0 - no wall
-int map[MAP_W][MAP_H] =
-        {
-                {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-                {1, 0, 0, 0, 1, 1, 0, 0, 0, 1},
-                {1, 0, 0, 0, 1, 0, 0, 1, 0, 1},
-                {1, 0, 3, 0, 1, 1, 1, 1, 0, 1},
-                {1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-                {1, 0, 0, 0, 0, 1, 0, 0, 0, 1},
-                {1, 0, 0, 0, 0, 0, 1, 0, 0, 1},
-                {1, 0, 1, 0, 0, 1, 0, 1, 0, 1},
-                {1, 0, 1, 0, 0, 1, 0, 0, 0, 1},
-                {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-        };
+int map[MAP_H][MAP_W];
 
-Vector2i robotMapPos = {2, 3};
+Vector2i robotMapPos = {400, 300};
 float robotAngle = -20;
 
 Vector2f robotWorldPos;
 
-Vector2i tileSize = {50, 50};
+Vector2i tileSize = {1, 1};
 
 float deg2rad(float deg) {
   return deg * PI / 180;
@@ -170,13 +158,11 @@ void visualizePlayerRaycast(Mat img) {
     //fix checking walls when hit them on their right or bottom side, check walls earlier them
     if (rayWorldPos.x == rayPosMap.x * tileSize.x && dir.x < 0) //hit wall left side
     {
-      std::cout << "Yolo !" << std::endl;
       hitTileX--;
     }
 
     if (rayWorldPos.y == rayPosMap.y * tileSize.y && dir.y < 0) //hit wall up side
     {
-      std::cout << "Gnoo !" << std::endl;
       hitTileY--;
     }
 
@@ -206,6 +192,31 @@ void visualizePlayerRaycast(Mat img) {
 
 int main() {
 
+  string line;
+  ifstream myfile ("Assignment_04_Grid_Map.pbm");
+  if (myfile.is_open()) {
+    int k = 0;
+    int x = 0;
+    int y = 0;
+    while (getline(myfile, line)) {
+      k++;
+      if (k < 3) continue;
+
+      for(char& c : line) {
+        int v = c - '0';
+        map[y][x] = v;
+
+        x++;
+        x%=MAP_W;
+        if (x==0) {
+          y++;
+        }
+      }
+    }
+    std::cout << x << " - " << y << std::endl;
+    myfile.close();
+  }
+
   std::cout << map[robotMapPos.y][robotMapPos.x] << std::endl;
   robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
   robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
@@ -223,13 +234,18 @@ int main() {
   char* source_window = "Raycasting";
   namedWindow( source_window, CV_WINDOW_AUTOSIZE );
 
+  drawMap(src);
+
   int k = 0;
+  robotAngle-=125;
+  int u = 0;
   while (k != 'q')  {
-    drawMap(src);
     visualizePlayerRaycast(src);
     imshow( source_window, src );
-    robotAngle += 2;
+//    imshow( source_window, src );
+    if (u < 250) robotAngle += 2;
     k = cv::waitKey(100);
+    u+=2;
   }
 
   return 0;
