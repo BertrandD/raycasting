@@ -33,23 +33,22 @@ enum TileType {
 //map data, 1 represents wall, 0 - no wall
 int map[MAP_H][MAP_W];
 
-Vector2i robotMapPos = {400, 300};
-float robotAngle = -20;
+Vector2i robotMapPos = {40, 180};
+float robotAngle = 125;
 
 Vector2f robotWorldPos;
 
-Vector2i tileSize = {1, 1};
+Vector2i tileSize = {4, 4};
 
 float deg2rad(float deg) {
   return deg * PI / 180;
 }
 
-
 void drawMap(Mat img) {
   for (int y = 0; y < MAP_H; y++) {
     for (int x = 0; x < MAP_W; x++) {
-      cv::Point2i P1 = {x*tileSize.x, y*tileSize.y};
-      cv::Point2i P2 = {P1.x+tileSize.x, P1.y+tileSize.y};
+      cv::Point2i P1 = {x * 1, y * 1};
+      cv::Point2i P2 = {P1.x + 1, P1.y + 1};
 
       //we need to check by [y][x] to draw correctly because of array structure
       if (map[y][x] == TileType::BLOCKADE) {
@@ -131,11 +130,11 @@ void visualizePlayerRaycast(Mat img) {
 
   //first ray hit position coordinates
   Vector2f rayWorldPos = {robotWorldPos.x + dist.x, robotWorldPos.y + dist.y};
-  Vector2i rayPosMap = {int(rayWorldPos.x / tileSize.x),
+  Vector2i rayMapPos = {int(rayWorldPos.x / tileSize.x),
                         int(rayWorldPos.y / tileSize.y)}; //just divide world coordinates by tile size
 
   std::cout << "Position of ray in world " << rayWorldPos.x << ":" << rayWorldPos.y << std::endl;
-  std::cout << "Position of ray in map " << rayPosMap.x << ":" << rayPosMap.y << std::endl;
+  std::cout << "Position of ray in map " << rayMapPos.x << ":" << rayMapPos.y << std::endl;
 
   bool hit = false;
 
@@ -149,19 +148,19 @@ void visualizePlayerRaycast(Mat img) {
 //               CV_FILLED);              // thickness
 
     //out of array range exceptions handling
-    if (rayPosMap.x < 0 || rayPosMap.x >= MAP_W || rayPosMap.y < 0 || rayPosMap.y >= MAP_H) break;
+    if (rayMapPos.x < 0 || rayMapPos.x >= MAP_W || rayMapPos.y < 0 || rayMapPos.y >= MAP_H) break;
 
     //checking that actually hit side is wall side
-    int hitTileX = rayPosMap.x;
-    int hitTileY = rayPosMap.y;
+    int hitTileX = rayMapPos.x;
+    int hitTileY = rayMapPos.y;
 
     //fix checking walls when hit them on their right or bottom side, check walls earlier them
-    if (rayWorldPos.x == rayPosMap.x * tileSize.x && dir.x < 0) //hit wall left side
+    if (rayWorldPos.x == rayMapPos.x * tileSize.x && dir.x < 0) //hit wall left side
     {
       hitTileX--;
     }
 
-    if (rayWorldPos.y == rayPosMap.y * tileSize.y && dir.y < 0) //hit wall up side
+    if (rayWorldPos.y == rayMapPos.y * tileSize.y && dir.y < 0) //hit wall up side
     {
       hitTileY--;
     }
@@ -171,29 +170,37 @@ void visualizePlayerRaycast(Mat img) {
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
       std::cout << "wall is position " << hitTileX << ":" << hitTileY << std::endl;
       std::cout << "distance before hitting wall " << d << std::endl;
-      cv::line(img, cv::Point(robotWorldPos.x, robotWorldPos.y), Point(rayWorldPos.x, rayWorldPos.y), Scalar(255, 0, 0), 1, CV_AA);
+      cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
+               CV_AA);
     } else {
       //move ray to next closest horizontal or vertical side
-      Vector2f dist = getDistToClosestHitPoint(angle, {rayPosMap.x, rayPosMap.y}, {rayWorldPos.x, rayWorldPos.y});
+      Vector2f dist = getDistToClosestHitPoint(angle, {rayMapPos.x, rayMapPos.y}, {rayWorldPos.x, rayWorldPos.y});
 
       //apply new move
       rayWorldPos.x += dist.x;
       rayWorldPos.y += dist.y;
+      double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
+      if (d > 1200) {
+        hit = true;
+        rayWorldPos.x -= dist.x;
+        rayWorldPos.y -= dist.y;
+        std::cout << "No wall found until 12m. Stopping on tile " << hitTileX << ":" << hitTileY << std::endl;
+        cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
+                 CV_AA);
+      }
 
       //update map positions
-      rayPosMap.x = (int) rayWorldPos.x / tileSize.x;
-      rayPosMap.y = (int) rayWorldPos.y / tileSize.y;
+      rayMapPos.x = (int) rayWorldPos.x / tileSize.x;
+      rayMapPos.y = (int) rayWorldPos.y / tileSize.y;
     }
   }
 }
 
 
-
-
 int main() {
 
   string line;
-  ifstream myfile ("Assignment_04_Grid_Map.pbm");
+  ifstream myfile("Assignment_04_Grid_Map.pbm");
   if (myfile.is_open()) {
     int k = 0;
     int x = 0;
@@ -202,13 +209,13 @@ int main() {
       k++;
       if (k < 3) continue;
 
-      for(char& c : line) {
+      for (char &c : line) {
         int v = c - '0';
         map[y][x] = v;
 
         x++;
-        x%=MAP_W;
-        if (x==0) {
+        x %= MAP_W;
+        if (x == 0) {
           y++;
         }
       }
@@ -221,8 +228,7 @@ int main() {
   robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
   robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
 
-  Mat src(MAP_H*tileSize.x, MAP_W*tileSize.y, CV_8UC3, Scalar(0, 0, 0));
-
+  Mat src(MAP_H, MAP_W, CV_8UC3, Scalar(0, 0, 0));
 
 //  src = imread( "Assignment_04_Grid_Map.png", 1 );
 
@@ -231,21 +237,22 @@ int main() {
 //    return  1;               // jump out of loop
 //  }
 
-  char* source_window = "Raycasting";
-  namedWindow( source_window, CV_WINDOW_AUTOSIZE );
+  char *source_window = "Raycasting";
+  namedWindow(source_window, CV_WINDOW_AUTOSIZE);
 
   drawMap(src);
+  imshow(source_window, src);
 
   int k = 0;
-  robotAngle-=125;
+  robotAngle -= 125;
   int u = 0;
-  while (k != 'q')  {
+  while (k != 'q') {
     visualizePlayerRaycast(src);
-    imshow( source_window, src );
-//    imshow( source_window, src );
+    imshow(source_window, src);
+    imshow(source_window, src);
     if (u < 250) robotAngle += 2;
     k = cv::waitKey(100);
-    u+=2;
+    u += 2;
   }
 
   return 0;
