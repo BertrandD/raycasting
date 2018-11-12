@@ -32,6 +32,7 @@ enum TileType {
 
 //map data, 1 represents wall, 0 - no wall
 int map[MAP_H][MAP_W];
+Mat img;
 
 Vector2i robotMapPos = {40, 180};
 float robotAngle = 125;
@@ -110,43 +111,23 @@ Vector2f getDistToClosestHitPoint(float angle, Vector2i rayMapPos, Vector2f rayW
   return {dx, dy};
 }
 
-
-void visualizeRobotRaycast(Mat img) {
+double robotRaycast(bool draw) {
 
   //get robot rotation angle and direction vector
   float angle = deg2rad(robotAngle);
 
   Vector2f dir = {cos(angle), sin(angle)};
 
-//  std::cout << "Dir of ray is " << dir.x << ":" << dir.y << std::endl;
-
   //get distance to first hit point
   Vector2f dist = getDistToClosestHitPoint(angle, robotMapPos, robotWorldPos);
-
-//  std::cout << "Position of robot in map " << robotMapPos.x << ":" << robotMapPos.y << std::endl;
-//  std::cout << "Position of robot in world " << robotWorldPos.x << ":" << robotWorldPos.y << std::endl;
-
-//  std::cout << "distance to first hit point is " << dist.x << ":" << dist.y << std::endl;
 
   //first ray hit position coordinates
   Vector2f rayWorldPos = {robotWorldPos.x + dist.x, robotWorldPos.y + dist.y};
   Vector2i rayMapPos = {int(rayWorldPos.x / tileSize.x),
                         int(rayWorldPos.y / tileSize.y)}; //just divide world coordinates by tile size
 
-//  std::cout << "Position of ray in world " << rayWorldPos.x << ":" << rayWorldPos.y << std::endl;
-//  std::cout << "Position of ray in map " << rayMapPos.x << ":" << rayMapPos.y << std::endl;
-
-  bool hit = false;
-
   //raycast loop
-  while (!hit) {
-    // draw small green circle at center of object detected
-//    cv::circle(img,            // draw on original image
-//               cv::Point(int(rayWorldPos.x), int(rayWorldPos.y)),  // center point of circle
-//               5,                // radius of circle in pixels
-//               cv::Scalar(0, 0, 255),           // draw green
-//               CV_FILLED);              // thickness
-
+  while (true) {
     //out of array range exceptions handling
     if (rayMapPos.x < 0 || rayMapPos.x >= MAP_W || rayMapPos.y < 0 || rayMapPos.y >= MAP_H) break;
 
@@ -166,12 +147,13 @@ void visualizeRobotRaycast(Mat img) {
     }
 
     if (map[hitTileY][hitTileX] == BLOCKADE) {
-      hit = true; //end raycasting loop
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
 //      std::cout << "wall is position " << hitTileX << ":" << hitTileY << std::endl;
 //      std::cout << "distance before hitting wall " << d << std::endl;
-      cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
-               CV_AA);
+      if (draw)
+        cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
+                 CV_AA);
+      return d;
     } else {
       //move ray to next closest horizontal or vertical side
       Vector2f dist = getDistToClosestHitPoint(angle, {rayMapPos.x, rayMapPos.y}, {rayWorldPos.x, rayWorldPos.y});
@@ -181,12 +163,13 @@ void visualizeRobotRaycast(Mat img) {
       rayWorldPos.y += dist.y;
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
       if (d > 1200) {
-        hit = true;
         rayWorldPos.x -= dist.x;
         rayWorldPos.y -= dist.y;
 //        std::cout << "No wall found until 12m. Stopping on tile " << hitTileX << ":" << hitTileY << std::endl;
-        cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
-                 CV_AA);
+        if (draw)
+          cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
+                   CV_AA);
+        return 1200;
       }
 
       //update map positions
@@ -196,6 +179,23 @@ void visualizeRobotRaycast(Mat img) {
   }
 }
 
+void getRobotRaycast(double (&scan)[126]) {
+  float startingAngle = robotAngle;
+  robotAngle -= 125;
+  int u = 0, i = 0;
+  robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+  robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+  robotAngle = startingAngle - 125;
+
+  while (u < 250) {
+    double d = robotRaycast(false);
+    scan[i] = d;
+    i++;
+    robotAngle += 2;
+    u += 2;
+  }
+  robotAngle = startingAngle;
+}
 
 int main() {
 
@@ -220,7 +220,6 @@ int main() {
         }
       }
     }
-    std::cout << x << " - " << y << std::endl;
     myfile.close();
   }
 
@@ -229,51 +228,58 @@ int main() {
   robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
 
   Mat src(MAP_H, MAP_W, CV_8UC3, Scalar(0, 0, 0));
+  img = src;
 
-//  src = imread( "Assignment_04_Grid_Map.png", 1 );
-
-//  if (src.empty()) {
-//    std::cout << "error: frame can't read \n";      // print error message
-//    return  1;               // jump out of loop
-//  }
-
-  char *source_window = "Raycasting";
+  char *source_window = const_cast<char *>("Raycasting");
   namedWindow(source_window, CV_WINDOW_AUTOSIZE);
 
   drawMap(src);
   imshow(source_window, src);
 
+  // Assignemt 4.1
+
+  double raycast[126];
+  std::cout << "Getting raycast from initial robot position" << std::endl;
+  getRobotRaycast(raycast);
+  std::cout << "Raycast : (";
+  for (double j : raycast) {
+    std::cout << j <<";";
+  }
+  std::cout << ")" << std::endl;
+
+
   int k = 0;
   float startingAngle = robotAngle;
   robotAngle -= 125;
-  int u = 0;
+  int u = 0, i = 0;
   while (k != 'q') {
     bool move = false;
     if (k == 81) {
-      robotMapPos.x-=2;
+      robotMapPos.x -= 2;
       move = true;
     }
     if (k == 82) {
-      robotMapPos.y-=2;
+      robotMapPos.y -= 2;
       move = true;
     }
     if (k == 83) {
-      robotMapPos.x+=2;
+      robotMapPos.x += 2;
       move = true;
     }
     if (k == 84) {
-      robotMapPos.y+=2;
+      robotMapPos.y += 2;
       move = true;
     }
     if (move) {
       robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
       robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
-      robotAngle = startingAngle-125;
+      robotAngle = startingAngle - 125;
       u = 0;
       drawMap(src);
     }
     if (u < 250) {
-      visualizeRobotRaycast(src);
+      robotRaycast(true);
+      i++;
       imshow(source_window, src);
       robotAngle += 2;
     }
