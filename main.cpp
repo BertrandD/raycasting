@@ -111,30 +111,30 @@ Vector2f getDistToClosestHitPoint(float angle, Vector2i rayMapPos, Vector2f rayW
 }
 
 
-void visualizePlayerRaycast(Mat img) {
+void visualizeRobotRaycast(Mat img) {
 
   //get robot rotation angle and direction vector
   float angle = deg2rad(robotAngle);
 
   Vector2f dir = {cos(angle), sin(angle)};
 
-  std::cout << "Dir of ray is " << dir.x << ":" << dir.y << std::endl;
+//  std::cout << "Dir of ray is " << dir.x << ":" << dir.y << std::endl;
 
   //get distance to first hit point
   Vector2f dist = getDistToClosestHitPoint(angle, robotMapPos, robotWorldPos);
 
-  std::cout << "Position of robot in map " << robotMapPos.x << ":" << robotMapPos.y << std::endl;
-  std::cout << "Position of robot in world " << robotWorldPos.x << ":" << robotWorldPos.y << std::endl;
+//  std::cout << "Position of robot in map " << robotMapPos.x << ":" << robotMapPos.y << std::endl;
+//  std::cout << "Position of robot in world " << robotWorldPos.x << ":" << robotWorldPos.y << std::endl;
 
-  std::cout << "distance to first hit point is " << dist.x << ":" << dist.y << std::endl;
+//  std::cout << "distance to first hit point is " << dist.x << ":" << dist.y << std::endl;
 
   //first ray hit position coordinates
   Vector2f rayWorldPos = {robotWorldPos.x + dist.x, robotWorldPos.y + dist.y};
   Vector2i rayMapPos = {int(rayWorldPos.x / tileSize.x),
                         int(rayWorldPos.y / tileSize.y)}; //just divide world coordinates by tile size
 
-  std::cout << "Position of ray in world " << rayWorldPos.x << ":" << rayWorldPos.y << std::endl;
-  std::cout << "Position of ray in map " << rayMapPos.x << ":" << rayMapPos.y << std::endl;
+//  std::cout << "Position of ray in world " << rayWorldPos.x << ":" << rayWorldPos.y << std::endl;
+//  std::cout << "Position of ray in map " << rayMapPos.x << ":" << rayMapPos.y << std::endl;
 
   bool hit = false;
 
@@ -168,8 +168,8 @@ void visualizePlayerRaycast(Mat img) {
     if (map[hitTileY][hitTileX] == BLOCKADE) {
       hit = true; //end raycasting loop
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
-      std::cout << "wall is position " << hitTileX << ":" << hitTileY << std::endl;
-      std::cout << "distance before hitting wall " << d << std::endl;
+//      std::cout << "wall is position " << hitTileX << ":" << hitTileY << std::endl;
+//      std::cout << "distance before hitting wall " << d << std::endl;
       cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
                CV_AA);
     } else {
@@ -184,7 +184,7 @@ void visualizePlayerRaycast(Mat img) {
         hit = true;
         rayWorldPos.x -= dist.x;
         rayWorldPos.y -= dist.y;
-        std::cout << "No wall found until 12m. Stopping on tile " << hitTileX << ":" << hitTileY << std::endl;
+//        std::cout << "No wall found until 12m. Stopping on tile " << hitTileX << ":" << hitTileY << std::endl;
         cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
                  CV_AA);
       }
@@ -244,14 +244,40 @@ int main() {
   imshow(source_window, src);
 
   int k = 0;
+  float startingAngle = robotAngle;
   robotAngle -= 125;
   int u = 0;
   while (k != 'q') {
-    visualizePlayerRaycast(src);
-    imshow(source_window, src);
-    imshow(source_window, src);
-    if (u < 250) robotAngle += 2;
-    k = cv::waitKey(100);
+    bool move = false;
+    if (k == 81) {
+      robotMapPos.x-=2;
+      move = true;
+    }
+    if (k == 82) {
+      robotMapPos.y-=2;
+      move = true;
+    }
+    if (k == 83) {
+      robotMapPos.x+=2;
+      move = true;
+    }
+    if (k == 84) {
+      robotMapPos.y+=2;
+      move = true;
+    }
+    if (move) {
+      robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+      robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+      robotAngle = startingAngle-125;
+      u = 0;
+      drawMap(src);
+    }
+    if (u < 250) {
+      visualizeRobotRaycast(src);
+      imshow(source_window, src);
+      robotAngle += 2;
+    }
+    k = cv::waitKey(1);
     u += 2;
   }
 
