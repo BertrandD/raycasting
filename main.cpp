@@ -25,6 +25,12 @@ struct Vector2f {
 };
 typedef struct Vector2f Vector2f;
 
+struct Raycast {
+  float distX;
+  float distY;
+  double d;
+};
+
 enum TileType {
   EMPTY,
   BLOCKADE
@@ -34,8 +40,8 @@ enum TileType {
 int map[MAP_H][MAP_W];
 Mat img;
 
-Vector2i robotMapPos = {40, 180};
-float robotAngle = 125;
+Vector2i robotMapPos = {334, 180};
+float robotAngle = 195;
 
 Vector2f robotWorldPos;
 
@@ -111,7 +117,8 @@ Vector2f getDistToClosestHitPoint(float angle, Vector2i rayMapPos, Vector2f rayW
   return {dx, dy};
 }
 
-double robotRaycast(bool draw) {
+
+struct Raycast robotRaycast(bool draw, double max) {
 
   //get robot rotation angle and direction vector
   float angle = deg2rad(robotAngle);
@@ -147,13 +154,13 @@ double robotRaycast(bool draw) {
     }
 
     if (map[hitTileY][hitTileX] == BLOCKADE) {
+      // Wall is position hitTileX:hitTileY
+      // Distance before hitting wall : d ;
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
-//      std::cout << "wall is position " << hitTileX << ":" << hitTileY << std::endl;
-//      std::cout << "distance before hitting wall " << d << std::endl;
       if (draw)
         cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
                  CV_AA);
-      return d;
+      return {rayWorldPos.x - robotWorldPos.x, rayWorldPos.y - robotWorldPos.y, d};
     } else {
       //move ray to next closest horizontal or vertical side
       Vector2f dist = getDistToClosestHitPoint(angle, {rayMapPos.x, rayMapPos.y}, {rayWorldPos.x, rayWorldPos.y});
@@ -162,14 +169,14 @@ double robotRaycast(bool draw) {
       rayWorldPos.x += dist.x;
       rayWorldPos.y += dist.y;
       double d = sqrt(pow(rayWorldPos.x - robotWorldPos.x, 2) + pow(rayWorldPos.y - robotWorldPos.y, 2));
-      if (d > 1200) {
+      if (d > max) {
         rayWorldPos.x -= dist.x;
         rayWorldPos.y -= dist.y;
-//        std::cout << "No wall found until 12m. Stopping on tile " << hitTileX << ":" << hitTileY << std::endl;
+        // No wall found until 12m. Stopping on tile hitTileX:hitTileY
         if (draw)
           cv::line(img, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(255, 0, 0), 1,
                    CV_AA);
-        return 1200;
+        return {rayWorldPos.x - robotWorldPos.x, rayWorldPos.y - robotWorldPos.y, max};
       }
 
       //update map positions
@@ -179,7 +186,73 @@ double robotRaycast(bool draw) {
   }
 }
 
-void getRobotRaycast(double (&scan)[126]) {
+double getDistanceToClosestObstacle() {
+  float startingAngle = robotAngle;
+  int u = 0;
+  double max = 600;
+  robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+  robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+
+  while (u <= 360) {
+    struct Raycast r = robotRaycast(false, max);
+    if (r.d < max) max = r.d;
+    robotAngle += 5;
+    u += 5;
+  }
+  robotAngle = startingAngle;
+
+  return max;
+}
+
+// p(z|x,m)
+double getLikelihoodForMeasurements(struct Raycast raycast[125], double likelihood[MAP_H][MAP_W]) {
+  double p_z_given_x_m = 0;
+  Vector2f dir = {cos(deg2rad(robotAngle)), sin(deg2rad(robotAngle))};
+  // Over all z_k
+  for (int k = 0; k < 125; ++k) {
+    struct Raycast z_k = raycast[k];
+    if (z_k.d >= 1200) continue;
+    auto distX = static_cast<float>(dir.x * z_k.d);
+    auto distY = static_cast<float>(dir.y * z_k.d);
+
+    Vector2f rayWorldPos = {robotWorldPos.x + distX, robotWorldPos.y + distY};
+    Vector2i rayMapPos = {int(rayWorldPos.x / tileSize.x),
+                          int(rayWorldPos.y / tileSize.y)}; //just divide world coordinates by tile size
+
+    if (!(rayMapPos.x < 0 || rayMapPos.x >= MAP_W || rayMapPos.y < 0 || rayMapPos.y >= MAP_H)){
+      if (p_z_given_x_m == 0) p_z_given_x_m = 1;
+      // q = q * (z_hit * prob(dist, sigma_hit) )
+      p_z_given_x_m *= 1 * likelihood[rayMapPos.y][rayMapPos.x];
+    }
+  }
+
+  return p_z_given_x_m;
+}
+
+double getMaxLikelihoodForRobotPositionOverAllOrientations(struct Raycast raycast[125], double likelihood[MAP_H][MAP_W]) {
+  float startingAngle = robotAngle;
+  int u = 0;
+  double max = 0;
+  robotAngle = 0;
+
+  while (u <= 360) {
+    if (u == 92) {
+      std::cout <<"";
+    }
+    if (max > 100) {
+      std::cout <<"";
+    }
+    double p = getLikelihoodForMeasurements(raycast, likelihood);
+    if (p > max) max = p;
+    robotAngle += 2;
+    u += 2;
+  }
+  robotAngle = startingAngle;
+
+  return max;
+}
+
+void getRobotRaycast(struct Raycast (&scan)[125]) {
   float startingAngle = robotAngle;
   robotAngle -= 125;
   int u = 0, i = 0;
@@ -188,8 +261,8 @@ void getRobotRaycast(double (&scan)[126]) {
   robotAngle = startingAngle - 125;
 
   while (u < 250) {
-    double d = robotRaycast(false);
-    scan[i] = d;
+    struct Raycast r = robotRaycast(false, 1200);
+    scan[i] = r;
     i++;
     robotAngle += 2;
     u += 2;
@@ -197,12 +270,53 @@ void getRobotRaycast(double (&scan)[126]) {
   robotAngle = startingAngle;
 }
 
+void outputMatrixToFile(string name, double matrix[MAP_H][MAP_W]) {
+  ofstream myfile (name);
+  if (myfile.is_open())
+  {
+    for (int l = 0; l < MAP_H; ++l) {
+      for (int c = 0; c < MAP_W; ++c) {
+        myfile << matrix[l][c] << " " ;
+      }
+      myfile << std::endl;
+    }
+    myfile.close();
+  }
+  else cout << "Unable to open file";
+}
+
+void loadMatrixFromFile(string name, double (&matrix)[MAP_H][MAP_W]) {
+  string line;
+  ifstream myfile(name);
+  if (myfile.is_open()) {
+    int x = 0;
+    int y = 0;
+    while (getline(myfile, line, ' ')) {
+      if (line == "\n") {
+        y++;
+        x= 0;
+        continue;
+      };
+      matrix[y][x] = stod(line);
+      x++;
+    }
+    myfile.close();
+  }
+}
+
+// prob(dist, sigma_hit)
+// dist = d
+// sigma_hit = 0.35m = 35cm
+double computeLikelihoodForDistance(double d) {
+  return 1 / (sqrt(2 * PI) * 35) * exp(-(d * d) / (2 * 35 * 35));
+}
+
 int main() {
 
   string line;
   ifstream myfile("Assignment_04_Grid_Map.pbm");
+  int k = 0;
   if (myfile.is_open()) {
-    int k = 0;
     int x = 0;
     int y = 0;
     while (getline(myfile, line)) {
@@ -229,26 +343,123 @@ int main() {
 
   Mat src(MAP_H, MAP_W, CV_8UC3, Scalar(0, 0, 0));
   img = src;
+  Mat likelihoodMap(MAP_H, MAP_W, CV_8UC3, Scalar(0, 0, 0));
+  Mat likelihoodMapForRaycast(MAP_H, MAP_W, CV_8UC3, Scalar(0, 0, 0));
 
   char *source_window = const_cast<char *>("Raycasting");
   namedWindow(source_window, CV_WINDOW_AUTOSIZE);
-
-  drawMap(src);
-  imshow(source_window, src);
+  namedWindow("Raycast Likelihood", CV_WINDOW_AUTOSIZE);
+  namedWindow("Likelihood Field", CV_WINDOW_AUTOSIZE);
 
   // Assignemt 4.1
 
-  double raycast[126];
+  struct Raycast raycast[125];
   std::cout << "Getting raycast from initial robot position" << std::endl;
   getRobotRaycast(raycast);
-  std::cout << "Raycast : (";
-  for (double j : raycast) {
-    std::cout << j <<";";
+  std::cout << "Raycast : z = (";
+  for (struct Raycast j : raycast) {
+    std::cout << j.d << ";";
   }
   std::cout << ")" << std::endl;
 
+  Vector2i bak = robotMapPos;
 
-  int k = 0;
+  double likelihood[MAP_H][MAP_W];
+  double raycastLikelihood[MAP_H][MAP_W];
+  std::cout << "distance to closest obstacle " << getDistanceToClosestObstacle() << std::endl;
+  std::cout << "likelihood" << computeLikelihoodForDistance(getDistanceToClosestObstacle()) << std::endl;
+
+//  std::cout << "Computing likelihood field" << std::endl;
+//
+//  for (int l = 0; l < MAP_H; ++l) {
+//    for (int c = 0; c < MAP_W; ++c) {
+//      if (c == 0 && l % 5 == 0) std::cout << l << "/400" << std::endl;
+//      if (map[l][c] == BLOCKADE) {
+//        likelihood[l][c] = computeLikelihoodForDistance(0);
+//        continue;
+//      };
+//      robotMapPos.x = c;
+//      robotMapPos.y = l;
+//      // prob(dist, sigma_hit)
+//      likelihood[l][c] = computeLikelihoodForDistance(getDistanceToClosestObstacle());
+//    }
+//  }
+//
+//  outputMatrixToFile("likelihood.map", likelihood);
+  std::cout << "Loading likelihood field from file" << std::endl;
+  loadMatrixFromFile("likelihood.map", likelihood);
+
+  std::cout << std::endl << "Display likelihood field" << std::endl;
+
+  for (int l = 0; l < MAP_H; ++l) {
+    for (int c = 0; c < MAP_W; ++c) {
+      cv::Point2i P1 = {c * 1, l * 1};
+      cv::Point2i P2 = {P1.x + 1, P1.y + 1};
+
+      //we need to check by [y][x] to draw correctly because of array structure
+//      if (map[l][c] == TileType::BLOCKADE) {
+//        cv::rectangle(likelihoodMap, P1, P2, Scalar(255, 50, 50), CV_FILLED);
+//      } else {
+        cv::rectangle(likelihoodMap, P1, P2,
+                      Scalar(likelihood[l][c] * 255 / 0.011398, likelihood[l][c] * 255 / 0.011398,
+                             likelihood[l][c] * 255 / 0.011398), CV_FILLED);
+//      }
+    }
+  }
+  imshow("Likelihood Field", likelihoodMap);
+  cv::waitKey(500);
+
+  std::cout << std::endl << "Display likelihood field for raycast" << std::endl;
+
+//  double pMax = 0;
+//  for (int l = 0; l < MAP_H; ++l) {
+//    for (int c = 0; c < MAP_W; ++c) {
+//      if (c == 0 && l % 5 == 0) std::cout << l << "/400" << std::endl;
+//      if (map[l][c] == BLOCKADE) {
+//        raycastLikelihood[l][c] = 0;
+//        continue;
+//      };
+//      robotMapPos = {c, l};
+//      robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+//      robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+//      if (c == bak.x && l == bak.y) {
+//        std::cout << "";
+//      }
+//
+//      double p = getMaxLikelihoodForRobotPositionOverAllOrientations(raycast, likelihood);
+//      if (p > pMax) pMax = p;
+//      raycastLikelihood[l][c] = p;
+//    }
+//  }
+//  outputMatrixToFile("raycastLikelihood.map", raycastLikelihood);
+  loadMatrixFromFile("raycastLikelihood.map", raycastLikelihood);
+
+  double pMax = 0.0113984;
+  for (int l = 0; l < MAP_H; ++l) {
+    for (int c = 0; c < MAP_W; ++c) {
+      if (map[l][c] == BLOCKADE) {
+        continue;
+      };
+      cv::Point2i P1 = {c * 1, l * 1};
+      cv::Point2i P2 = {P1.x + 1, P1.y + 1};
+      double p = raycastLikelihood[l][c] / pMax;
+      cv::rectangle(likelihoodMapForRaycast, P1, P2, Scalar(p * 255, p * 255,
+                                                            p * 255), CV_FILLED);
+    }
+  }
+
+
+  imshow("Raycast Likelihood", likelihoodMapForRaycast);
+
+  drawMap(src);
+  imshow(source_window, src);
+  cv::waitKey(1);
+
+  robotMapPos = bak;
+  robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+  robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+
+  k = 0;
   float startingAngle = robotAngle;
   robotAngle -= 125;
   int u = 0, i = 0;
@@ -271,6 +482,7 @@ int main() {
       move = true;
     }
     if (move) {
+      std::cout << robotMapPos.x << ":" << robotMapPos.y << std::endl;
       robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
       robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
       robotAngle = startingAngle - 125;
@@ -278,10 +490,28 @@ int main() {
       drawMap(src);
     }
     if (u < 250) {
-      robotRaycast(true);
+      robotRaycast(true, 1200);
       i++;
       imshow(source_window, src);
       robotAngle += 2;
+    } else {
+      cv::circle(src,            // draw on original image
+                 cv::Point(robotMapPos.x, robotMapPos.y),  // center point of circle
+                 10,                // radius of circle in pixels
+                 cv::Scalar(0, 255, 0),           // draw green
+                 CV_FILLED);              // thickness
+
+      robotWorldPos.x = robotMapPos.x * tileSize.x + 2;
+      robotWorldPos.y = robotMapPos.y * tileSize.y + 2;
+
+      //first ray hit position coordinates
+      Vector2f rayWorldPos = {robotWorldPos.x + cos(deg2rad(startingAngle)) * 40, robotWorldPos.y + sin(deg2rad(startingAngle)) * 40};
+      Vector2i rayMapPos = {int(rayWorldPos.x / tileSize.x),
+                            int(rayWorldPos.y / tileSize.y)}; //just divide world coordinates by tile size
+
+      cv::line(src, cv::Point(robotMapPos.x, robotMapPos.y), Point(rayMapPos.x, rayMapPos.y), Scalar(0, 0, 255), 1,
+               CV_AA);
+      imshow(source_window, src);
     }
     k = cv::waitKey(1);
     u += 2;
